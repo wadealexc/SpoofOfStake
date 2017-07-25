@@ -45,7 +45,6 @@ contract SpoofOfStake2{
 
   //
   struct Game{
-
     //For access and Ether withdrawal from previous games
     uint gameId;
     //Keeps track of every backer for this game
@@ -67,7 +66,7 @@ contract SpoofOfStake2{
 
   //Contract variables:
   //The current running game
-  Game curGame;
+  uint curGameId;
   //Mapping of all gameIds to their respective games
   mapping(uint => Game) games;
   //owner
@@ -76,6 +75,15 @@ contract SpoofOfStake2{
   uint public treasury;
 
   uint public house_cut_percent;
+  uint public house_cut_percent_tie;
+
+  //TEMP
+  bool public flagA;
+  bool public flagB;
+  bool public flagC;
+  uint public valFlagA;
+  uint public valFlagB;
+  uint public valFlagC;
 
   //Percent of the house_cut received by anyone who calls startNewGame when
   //there is no current running game
@@ -86,41 +94,36 @@ contract SpoofOfStake2{
   //Constructor
   function SpoofOfStake2(){
     owner = msg.sender;
-    curGame = Game({
+    games[0] = Game({
       gameId:0,
       startTime:now,
-      endTime:now + 1 hours,
+      endTime: now + 1 minutes, /*TODO*/
       totalInA:0,
       totalInB:0,
       totalInGame:0,
       winner:gameWinner.InProgress,
       locked:false
     });
-    games[curGame.gameId] = curGame;
-    house_cut_percent = 4;
+    curGameId = 0;
+    house_cut_percent = 5;
+    house_cut_percent_tie = 10;
     startgame_bounty_percent = 1;
   }
 
   //Throws if the curGame has already ended
   modifier gameRunning(){
-    if(now > curGame.endTime){ //if the curGame has ended, throw
-      throw;
-    }
+    require(now <= games[curGameId].endTime); //if the curGame has ended, throw
     _;
   }
 
   //Throws if the gameId provided pertains to a game in session
-  modifier validId(uint gameId){
-    if(now <= games[gameId].endTime){
-      throw;
-    }
+  modifier notRunning(uint gameId){
+    require(now > games[gameId].endTime);
     _;
   }
 
   modifier notLocked(uint gameId){
-    if(games[gameId].locked == true){
-      throw;
-    }
+    require(games[gameId].locked != true);
     _;
   }
 
@@ -145,116 +148,119 @@ contract SpoofOfStake2{
   //Accepted strings: "A" or "B". Anything else will return false
   function back(string choice) gameRunning payable returns(bool success){
     if(equal(choice, "A")){ //User backs side A
-      curGame.totalInA += msg.value;
-      curGame.totalInGame += msg.value;
-      curGame.backers[msg.sender].amtA += msg.value;
-      LogBack(msg.sender, "A", msg.value);
+      games[curGameId].totalInA += msg.value;
+      games[curGameId].totalInGame += msg.value;
+      games[curGameId].backers[msg.sender].amtA += msg.value;
+      //LogBack(msg.sender, "A", msg.value);
       return true;
     } else if (equal(choice, "B")){ //User backs side B
-      curGame.totalInB += msg.value;
-      curGame.totalInGame += msg.value;
-      curGame.backers[msg.sender].amtB += msg.value;
-      LogBack(msg.sender, "B", msg.value);
+      games[curGameId].totalInB += msg.value;
+      games[curGameId].totalInGame += msg.value;
+      games[curGameId].backers[msg.sender].amtB += msg.value;
+      //LogBack(msg.sender, "B", msg.value);
+      return true;
     } else { //No choice, or an invalid choice was made
       return false;
     }
   }
 
-  //TODO: create bounty
   //Create a new game if there is no game running
-  function startNewGame() returns(bool success){
-    //Split up for readability:
-    uint gameStartA = 0;
-    uint gameStartB = 0;
-
-    //Decide winner
-    if(now > curGame.endTime){
-      if(curGame.totalInA > curGame.totalInB){ //A won
-        curGame.winner = gameWinner.SideA;
-      } else if (curGame.totalInB > curGame.totalInA){ //B won
-        curGame.winner = gameWinner.SideB;
-      } else { //tie
-        curGame.winner = gameWinner.Tie;
-      }
+  //The person who calls this function will receive a bounty equal to a portion
+  //of the house cut from this game as a reward
+  function startGame() notRunning(curGameId) returns(bool success){
+    //decide the winner
+    if(games[curGameId].totalInA > games[curGameId].totalInB){
+        games[curGameId].winner = gameWinner.SideA;
+    } else if (games[curGameId].totalInB > games[curGameId].totalInA){
+      games[curGameId].winner = gameWinner.SideB;
     } else {
-      return false;
+      games[curGameId].winner = gameWinner.Tie;
     }
 
-    //Check for old games to lock:
-    if(curGame.gameId - 7 >= 0){
-      uint amtToDistribute = games[curGame.gameId - 7].totalInGame;
-      games[curGame.gameId - 7].totalInGame = 0;
-      //Lock the old game
-      games[curGame.gameId - 7].locked = true;
-      //If the current game was a tie, distribute Ether equally
-      if(curGame.winner == gameWinner.Tie){
-        gameStartA += amtToDistribute / 2;
-        gameStartB += amtToDistribute / 2;
-      } else { //Otherwise, place all of the Ether on side A
-        gameStartA += amtToDistribute;
+    uint newSideA = 0;
+    uint newSideB = 0;
+    uint house_cut = 0;
+    uint bounty = 0;
+    //If the game is a tie we want to take the house *tie* cut and roll
+    //the rest of the funds over
+    if(games[curGameId].winner == gameWinner.Tie){
+      house_cut += (games[curGameId].totalInGame * house_cut_percent_tie) / 100;
+      games[curGameId].totalInGame -= house_cut;
+      newSideA += games[curGameId].totalInGame / 2;
+      newSideB += newSideA;
+      games[curGameId].locked = true;
+    } else {
+      house_cut += (games[curGameId].totalInGame * house_cut_percent) / 100;
+      games[curGameId].totalInGame -= house_cut;
+    }
+
+    bounty += (house_cut * startgame_bounty_percent) / 100;
+    house_cut -= bounty;
+    treasury += house_cut;
+
+    //If there is an old game we want to lock, take any remaining funds from it
+    //and add them to the lastest game.
+    //If the last game was a tie, split the old funds evenly between the two sides
+    //If the last game was not a tie, place all of the old funds on A
+    if(curGameId - 25 >= 0){
+      games[curGameId - 25].locked = true;
+      uint old_funds = games[curGameId - 25].totalInGame;
+      games[curGameId - 25].totalInGame = 0;
+      if(games[curGameId].winner == gameWinner.Tie){
+        //In the
+        newSideA += old_funds / 2;
+        newSideB = newSideA;
+      } else {
+        newSideA += old_funds;
       }
     }
 
-    //If the current game was a tie, lock withdrawals and roll Ether over
-    //to the next game
-    if(curGame.winner == gameWinner.Tie){
-      //lock withdrawals
-      curGame.locked = true;
-      gameStartA += curGame.totalInA;
-      gameStartB += curGame.totalInB;
-      //set total in game to 0, as the Ether rolls over
-      curGame.totalInGame = 0;
-    }
-
-    /*
-    *Take house cut of the previous game. No cut is taken in event of a tie.
-    *This is not explicitly checked for, but totalInGame is set to 0 in event
-    *of a tie, so house_cut will also be 0
-    */
-    uint house_cut = curGame.totalInGame * (house_cut_percent / 100);
-    //totalInGame, totalInA, and totalInB decreased so withdrawals are correct
-    curGame.totalInGame = curGame.totalInGame *
-        ((100 - house_cut_percent) / 100);
-    //It doesn't matter that these change in the event of a tie as withdrawals
-    //are locked anyway
-    curGame.totalInA = curGame.totalInA *
-        ((100 - house_cut_percent) / 100);
-    curGame.totalInB = curGame.totalInB *
-        ((100 - house_cut_percent) / 100);
-
-    bounty_allowances[msg.sender] += house_cut *
-        (startgame_bounty_percent / 100);
-    house_cut = house_cut - (house_cut * (startgame_bounty_percent / 100));
-    treasury += house_cut;
-    HouseCut(house_cut, house_cut_percent, treasury);
-
-    //Start a new game with the calculated start amounts
-    curGame = Game({
-      gameId: curGame.gameId + 1,
+    //Now increment curGameId and create a new game with the start amounts:
+    curGameId += 1;
+    games[curGameId] = Game({
       startTime: now,
-      endTime: now + 1 hours,
-      totalInA: gameStartA,
-      totalInB: gameStartB,
-      totalInGame: gameStartA + gameStartB,
+      endTime: now + 1 minutes,
+      gameId: curGameId,
+      totalInA: newSideA,
+      totalInB: newSideB,
+      totalInGame: newSideA + newSideB,
       winner: gameWinner.InProgress,
       locked: false
     });
-    games[curGame.gameId] = curGame;
-    NewGame(curGame.startTime, curGame.endTime, curGame.totalInGame);
+
+    //Attempt to send the person who called this function the bounty
+    //If it does not work, we add their bounty to a mapping to be collected later
+    if(msg.sender.send(bounty) == false){
+      bounty_allowances[msg.sender] += bounty;
+      flagA = true;
+    }
+    valFlagA = house_cut;
+    valFlagB = treasury;
+    valFlagC = bounty;
     return true;
+
+  }
+
+  function claimBounties() returns(bool){
+    uint to_send = bounty_allowances[msg.sender];
+    if(msg.sender.send(to_send) == true){
+      bounty_allowances[msg.sender] = 0;
+      return true;
+    }
+    return false;
   }
 
   /*
   *Once a game is complete, winnings can be withdrawn. This will fail if
   *the game is more than 7 games old, or if the game is still running
-  */
-  function withdrawWinnings(uint gameId) validId(gameId) notLocked(gameId)
+  */ /*TODO - change to withdraw all winnings*/
+  /*TODO important - add modifier that won't allow withdrawals without a current game running*/
+  function withdrawWinnings(uint gameId) notRunning(gameId) notLocked(gameId)
       returns (bool success){
     //if side A won
-    Game game = games[gameId];
+    Game storage game = games[gameId];
     uint amount_to_withdraw = 0;
-    BackingAmt backing = game.backers[msg.sender];
-
+    BackingAmt storage backing = game.backers[msg.sender];
     if(game.winner == gameWinner.SideA){
       //If msg.sender did not contribute to side A, or has already withdrawn
       if(backing.amtA == 0){
@@ -263,7 +269,7 @@ contract SpoofOfStake2{
 
       amount_to_withdraw += backing.amtA;
       //TODO check math here - floats/doubles not yet possible in solidity
-      uint winning_ratio_A = backing.amtA / game.totalInA;
+      var winning_ratio_A = backing.amtA / game.totalInA;
       amount_to_withdraw += (winning_ratio_A * game.totalInB);
 
       //Check that the game has at least amount_to_withdraw in the game:
@@ -297,7 +303,6 @@ contract SpoofOfStake2{
       if(game.totalInGame < amount_to_withdraw){
         return false;
       }
-
       //Otherwise, send winnings
       if(msg.sender.send(amount_to_withdraw) == true){
         //transfer successful:
@@ -310,15 +315,27 @@ contract SpoofOfStake2{
         return false;
       }
     } else { //A tie - this should never trigger, as a tied game is locked
-        return false;
+      return false;
     }
   }
 
   /*
   * GET methods
   */
-  function isGameRunning() constant returns(bool){
-    return now < curGame.endTime;
+  function isGameRunning(uint gameId) returns(bool){
+    return now <= games[gameId].endTime;
+  }
+
+  function getNow() constant returns(uint){
+    return now;
+  }
+
+  function getGameEndTime(uint gameId) constant returns(uint){
+    return games[gameId].endTime;
+  }
+
+  function getTimeTillGameEnd(uint gameId) constant returns(int){
+    return int(now) - int(games[gameId].endTime);
   }
 
   //returns the total amount of ether in a game corresponding to a gameId
@@ -352,6 +369,54 @@ contract SpoofOfStake2{
 
   function getTreasury() constant returns(uint){
     return treasury;
+  }
+
+  function getFlagA() constant returns(bool){
+    return flagA;
+  }
+
+  function getFlagB() constant returns(bool){
+    return flagB;
+  }
+
+  function getFlagC() constant returns(bool){
+    return flagC;
+  }
+
+  function getValFlagA() constant returns(uint){
+    return valFlagA;
+  }
+
+  function getValFlagB() constant returns(uint){
+    return valFlagB;
+  }
+
+  function getValFlagC() constant returns(uint){
+    return valFlagC;
+  }
+
+  /*function getBackAmtA(uint gameId) constant returns(uint){
+    return games[gameId].backers[msg.sender].amtA;
+  }
+
+  function getBackAmtB(uint gameId) constant returns(uint){
+    return games[gameId].backers[msg.sender].amtB;
+  }*/
+
+  function getCurGameId() constant returns(uint){
+    return curGameId;
+  }
+
+  function getGameWinner(uint gameId) constant returns(string){
+    if(games[gameId].winner == gameWinner.SideA){
+      return 'A';
+    } else if(games[gameId].winner == gameWinner.SideB){
+      return 'B';
+    } else if(games[gameId].winner == gameWinner.Tie){
+      return 'T';
+    } else {
+      return 'P';
+    }
   }
   //
 }
