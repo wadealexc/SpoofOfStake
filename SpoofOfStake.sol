@@ -127,6 +127,13 @@ contract SpoofOfStake2{
     _;
   }
 
+  modifier curGameExists(){
+    require(games[curGameId].startTime < now
+      && games[curGameId].endTime > now);
+
+    _;
+  }
+
   /*
   * Events:
   */
@@ -234,9 +241,7 @@ contract SpoofOfStake2{
       bounty_allowances[msg.sender] += bounty;
       flagA = true;
     }
-    valFlagA = house_cut;
-    valFlagB = treasury;
-    valFlagC = bounty;
+
     return true;
 
   }
@@ -253,10 +258,11 @@ contract SpoofOfStake2{
   /*
   *Once a game is complete, winnings can be withdrawn. This will fail if
   *the game is more than 7 games old, or if the game is still running
-  */ /*TODO - change to withdraw all winnings*/
-  /*TODO important - add modifier that won't allow withdrawals without a current game running*/
+  *This will also fail if there is not a current game running, to prevent
+  *withdrawals from the previous game if the startGame function has not been called
+  */
   function withdrawWinnings(uint gameId) notRunning(gameId) notLocked(gameId)
-      returns (bool success){
+      curGameExists() returns (bool success){
     //if side A won
     Game storage game = games[gameId];
     uint amount_to_withdraw = 0;
@@ -268,9 +274,8 @@ contract SpoofOfStake2{
       }
 
       amount_to_withdraw += backing.amtA;
-      //TODO check math here - floats/doubles not yet possible in solidity
-      var winning_ratio_A = backing.amtA / game.totalInA;
-      amount_to_withdraw += (winning_ratio_A * game.totalInB);
+      /*TODO check math here*/
+      amount_to_withdraw += ((backing.amtA * game.totalInB) / game.totalInA);
 
       //Check that the game has at least amount_to_withdraw in the game:
       if(game.totalInGame < amount_to_withdraw){
@@ -281,8 +286,8 @@ contract SpoofOfStake2{
       if(msg.sender.send(amount_to_withdraw) == true){
         //transfer successful:
         game.totalInGame -= amount_to_withdraw;
-        backing.amtA = 0;
-        backing.amtB = 0;
+        game.backers[msg.sender].amtA = 0; //works correctly
+        game.backers[msg.sender].amtB = 0;
         PaidOut(amount_to_withdraw, gameId, msg.sender);
         return true;
       } else {
@@ -296,8 +301,7 @@ contract SpoofOfStake2{
 
       amount_to_withdraw += backing.amtB;
       //TODO check math here - floats/doubles not yet possible in solidity
-      uint winning_ratio_B = backing.amtB / game.totalInB;
-      amount_to_withdraw += (winning_ratio_B * game.totalInA);
+      amount_to_withdraw += ((backing.amtB * game.totalInA) / game.totalInB);
 
       //Check that the game has at least amount_to_withdraw in the game:
       if(game.totalInGame < amount_to_withdraw){
