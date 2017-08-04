@@ -1,34 +1,6 @@
-pragma solidity ^0.4.11;
+pragma solidity ^0.4.13;
 
 contract SpoofOfStake2{
-
-  //stringUtils string comparison
-  //full library:
-  //github.com/ethereum/dapp-bin/blob/master/library/stringUtils.sol
-  function compare(string _a, string _b) internal returns(int){
-    bytes memory a = bytes(_a);
-    bytes memory b = bytes(_b);
-    uint minLength = a.length;
-    if(b.length < minLength) minLength = b.length;
-    for(uint i = 0; i < minLength; i++){
-      if(a[i] < b[i]){
-        return -1;
-      } else if (a[i] > b[i]){
-        return 1;
-      }
-    }
-    if(a.length < b.length){
-      return -1;
-    }else if (a.length > b.length){
-      return 1;
-    }else{
-      return 0;
-    }
-  }
-
-  function equal(string _a, string _b) internal returns(bool){
-    return compare(_a, _b) == 0;
-  }
 
   //Allows a mapping between a user and 2 backing amounts
   struct BackingAmt{
@@ -74,6 +46,10 @@ contract SpoofOfStake2{
   //Amount of Ether taken from house edge and not withdrawn from the contract
   uint public treasury;
 
+  bool public paused;
+
+  uint public gameDur;
+
   uint public house_cut_percent;
   uint public house_cut_percent_tie;
 
@@ -94,10 +70,12 @@ contract SpoofOfStake2{
   //Constructor
   function SpoofOfStake2(){
     owner = msg.sender;
+    paused = false;
+    gameDur = 1 minutes; /*TODO*/
     games[0] = Game({
       gameId:0,
       startTime:now,
-      endTime: now + 1 minutes, /*TODO*/
+      endTime: now + gameDur,
       totalInA:0,
       totalInB:0,
       totalInGame:0,
@@ -110,9 +88,19 @@ contract SpoofOfStake2{
     startgame_bounty_percent = 1;
   }
 
-  //Throws if the curGame has already ended
-  modifier gameRunning(){
-    require(now <= games[curGameId].endTime); //if the curGame has ended, throw
+  /*
+  * MODIFIERS:
+  */
+
+  //Throws if there is not an active game
+  modifier activeGameExists(){
+    require(now <= games[curGameId].endTime);
+    _;
+  }
+
+  //Throws if there is an active game
+  modifier noActiveGameExists(){
+    require(now > games[curGameId].endTime);
     _;
   }
 
@@ -134,8 +122,30 @@ contract SpoofOfStake2{
     _;
   }
 
+  modifier validSideChoice(string choice){
+    if(equal(choice, 'A')){
+      flagA = true;
+    } else if (equal(choice, 'B')){
+      flagB = true;
+    } else {
+      flagC = true;
+    }
+    require(equal('A', choice) || equal('B', choice));
+    _;
+  }
+
+  modifier notPaused(){
+    require(paused == false);
+    _;
+  }
+
+  modifier onlyOwner(){
+    require(msg.sender == owner);
+    _;
+  }
+
   /*
-  * Events:
+  * EVENTS:
   */
 
   //Event displays a user backing a side
@@ -153,7 +163,13 @@ contract SpoofOfStake2{
   //Allows a player to back a side - A or B by calling this function
   //And passing in a string indicating the choice.
   //Accepted strings: "A" or "B". Anything else will return false
-  function back(string choice) gameRunning payable returns(bool success){
+  function back(string choice)
+    activeGameExists
+    validSideChoice(choice)
+    notPaused
+    payable
+    returns(bool success)
+    {
     if(equal(choice, "A")){ //User backs side A
       games[curGameId].totalInA += msg.value;
       games[curGameId].totalInGame += msg.value;
@@ -167,6 +183,7 @@ contract SpoofOfStake2{
       //LogBack(msg.sender, "B", msg.value);
       return true;
     } else { //No choice, or an invalid choice was made
+      //This should never be accessed, because of the validSideChoice modifier
       return false;
     }
   }
@@ -174,15 +191,31 @@ contract SpoofOfStake2{
   //Create a new game if there is no game running
   //The person who calls this function will receive a bounty equal to a portion
   //of the house cut from this game as a reward
-  function startGame() notRunning(curGameId) returns(bool success){
+  /*TODO move deposit mappings to the new game in case of a tie*/
+  function startGame()
+    noActiveGameExists
+    notPaused
+    returns(bool success)
+    {
+
+    //To save on gas, if the previous game had no ether in it, we simply
+    //extend the endTime and return. Unfortunately in this case there is no
+    //bounty for the sender but the gas cost is also low
+    if(games[curGameId].totalInGame == 0){
+      games[curGameId].endTime += gameDur;
+      return true;
+    }
+
     //decide the winner
-    if(games[curGameId].totalInA > games[curGameId].totalInB){
+    if(games[curGameId].totalInA < games[curGameId].totalInB){
         games[curGameId].winner = gameWinner.SideA;
-    } else if (games[curGameId].totalInB > games[curGameId].totalInA){
+    } else if (games[curGameId].totalInB < games[curGameId].totalInA){
       games[curGameId].winner = gameWinner.SideB;
     } else {
+      flagA = true;
       games[curGameId].winner = gameWinner.Tie;
     }
+    flagB = true;
 
     uint newSideA = 0;
     uint newSideB = 0;
@@ -236,23 +269,10 @@ contract SpoofOfStake2{
     });
 
     //Attempt to send the person who called this function the bounty
-    //If it does not work, we add their bounty to a mapping to be collected later
-    if(msg.sender.send(bounty) == false){
-      bounty_allowances[msg.sender] += bounty;
-      flagA = true;
-    }
+    msg.sender.transfer(bounty);
 
     return true;
 
-  }
-
-  function claimBounties() returns(bool){
-    uint to_send = bounty_allowances[msg.sender];
-    if(msg.sender.send(to_send) == true){
-      bounty_allowances[msg.sender] = 0;
-      return true;
-    }
-    return false;
   }
 
   /*
@@ -276,6 +296,8 @@ contract SpoofOfStake2{
       amount_to_withdraw += backing.amtA;
       /*TODO check math here*/
       amount_to_withdraw += ((backing.amtA * game.totalInB) / game.totalInA);
+      //Takes out the house cut, but does not add to treasury (this is done in the startGame function)
+      amount_to_withdraw  = (amount_to_withdraw * (100 - house_cut_percent)) / 100;
 
       //Check that the game has at least amount_to_withdraw in the game:
       if(game.totalInGame < amount_to_withdraw){
@@ -286,6 +308,7 @@ contract SpoofOfStake2{
       if(msg.sender.send(amount_to_withdraw) == true){
         //transfer successful:
         game.totalInGame -= amount_to_withdraw;
+        valFlagA = amount_to_withdraw;
         game.backers[msg.sender].amtA = 0; //works correctly
         game.backers[msg.sender].amtB = 0;
         PaidOut(amount_to_withdraw, gameId, msg.sender);
@@ -303,12 +326,14 @@ contract SpoofOfStake2{
       //TODO check math here - floats/doubles not yet possible in solidity
       amount_to_withdraw += ((backing.amtB * game.totalInA) / game.totalInB);
 
+      amount_to_withdraw = (amount_to_withdraw * (100 - house_cut_percent)) / 100;
       //Check that the game has at least amount_to_withdraw in the game:
       if(game.totalInGame < amount_to_withdraw){
         return false;
       }
       //Otherwise, send winnings
       if(msg.sender.send(amount_to_withdraw) == true){
+        valFlagA = amount_to_withdraw;
         //transfer successful:
         game.totalInGame -= amount_to_withdraw;
         backing.amtA = 0;
@@ -321,6 +346,11 @@ contract SpoofOfStake2{
     } else { //A tie - this should never trigger, as a tied game is locked
       return false;
     }
+  }
+
+  //Determines if two strings are the same
+  function equal(string _a, string _b) internal returns(bool){
+    return sha3(_a) == sha3(_b);
   }
 
   /*
