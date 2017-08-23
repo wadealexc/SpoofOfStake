@@ -1,8 +1,8 @@
 pragma solidity ^0.4.13;
 
 contract SpoofOfStakeBeta{
-    
-    
+
+
   /*
   * SAFE MATH LIBRARY:
   */
@@ -28,8 +28,8 @@ contract SpoofOfStakeBeta{
     uint256 c = a + b;
     assert(c >= a);
     return c;
-  }    
-    
+  }
+
   /*
   * STRUCTS:
   */
@@ -49,21 +49,21 @@ contract SpoofOfStakeBeta{
     uint gameId;
     //Keeps track of every backer for this game
     mapping(address => BackingAmt) backers;
-    
+
     uint startTime;
     uint endTime;
-    
+
     //Keeps track of the overall amounts sent to A and B
     //Remains constant after a game is finished
     uint totalInA;
     uint totalInB;
-    
+
     //Keeps track of the total Ether the game holds. Changes based on
     //withdrawals after a game. Is calculated post-game
     uint totalInGame;
-    
+
     //0 - In progress, 1 - A won, 2 - B won, 3 - Tie
-    uint8 winner; 
+    uint8 winner;
 
     //Keeps track of this game's house cut and bounty percentages, so that
     //In the event of a vote to change any of these, they remain the same
@@ -76,7 +76,7 @@ contract SpoofOfStakeBeta{
   /*
   * CONTRACT VARIABLES:
   */
-  
+
   //The current running game's id
   uint curGameId;
   //Mapping of all gameIds to their respective games
@@ -96,7 +96,7 @@ contract SpoofOfStakeBeta{
   //Percent of the house_cut received by anyone who calls startNewGame when
   //there is no current running game
   uint public startgame_bounty_percent;
-    
+
   //Defined so no magic constants are used
   uint8 public constant IN_PROGRESS = 0;
   uint8 public constant SIDE_A = 1;
@@ -202,7 +202,7 @@ contract SpoofOfStakeBeta{
   function setHouseCutTie(uint house_cut_tie) onlyPrivileged {
     house_cut_percent_tie = house_cut_tie;
   }
-  
+
   //Used by the token contract to withdraw treasury
   function withdrawTreasury() onlyPrivileged {
     uint temp = treasury;
@@ -222,13 +222,13 @@ contract SpoofOfStakeBeta{
     {
     if(choice == 1){ //User backs side A
       games[curGameId].totalInA = add(games[curGameId].totalInA,  msg.value);
-      games[curGameId].backers[msg.sender].amtA = 
+      games[curGameId].backers[msg.sender].amtA =
           add(games[curGameId].backers[msg.sender].amtA,  msg.value);
       LogBack(msg.sender, "A", msg.value);
       return true;
     } else if (choice == 2){ //User backs side B
       games[curGameId].totalInB = add(games[curGameId].totalInB,  msg.value);
-      games[curGameId].backers[msg.sender].amtB = 
+      games[curGameId].backers[msg.sender].amtB =
           add(games[curGameId].backers[msg.sender].amtB,  msg.value);
       LogBack(msg.sender, "B", msg.value);
       return true;
@@ -255,7 +255,7 @@ contract SpoofOfStakeBeta{
       return true;
     } else {
       //Calculating the total Ether in this game
-      games[curGameId].totalInGame = 
+      games[curGameId].totalInGame =
           add(games[curGameId].totalInA, games[curGameId].totalInB);
     }
 
@@ -270,7 +270,7 @@ contract SpoofOfStakeBeta{
 
     uint house_cut = 0;
     uint bounty = 0;
-    
+
     //House cut is different if the game is a tie
     //Using SafeMath reduces readability in this case
     if(games[curGameId].winner == TIE){
@@ -308,8 +308,8 @@ contract SpoofOfStakeBeta{
   }
 
   /*
-  * Once a game is complete, winnings can be withdrawn. This will fail 
-  * if the game is still running or if there is not a current game running, 
+  * Once a game is complete, winnings can be withdrawn. This will fail
+  * if the game is still running or if there is not a current game running,
   * to prevent withdrawals from the previous game if the startGame function
   * has not been called
   * gameId: The id of the game to withdraw from
@@ -333,14 +333,14 @@ contract SpoofOfStakeBeta{
         && games[gameId].backers[msg.sender].amtB != 0){
 
         amount_to_withdraw = games[gameId].backers[msg.sender].amtB;
-        games[gameId].totalInGame = 
+        games[gameId].totalInGame =
             sub(games[gameId].totalInGame, amount_to_withdraw);
         delete games[gameId].backers[msg.sender];
         msg.sender.transfer(amount_to_withdraw);
         return true;
       }
 
-      amount_to_withdraw = 
+      amount_to_withdraw =
           add(amount_to_withdraw, games[gameId].backers[msg.sender].amtA);
 
       amount_to_withdraw += ((games[gameId].backers[msg.sender].amtA
@@ -355,7 +355,7 @@ contract SpoofOfStakeBeta{
       }
 
       delete games[gameId].backers[msg.sender];
-      games[gameId].totalInGame = 
+      games[gameId].totalInGame =
           sub(games[gameId].totalInGame, amount_to_withdraw);
       msg.sender.transfer(amount_to_withdraw);
       PaidOut(amount_to_withdraw, gameId, msg.sender);
@@ -371,14 +371,14 @@ contract SpoofOfStakeBeta{
         && games[gameId].backers[msg.sender].amtA != 0){
 
         amount_to_withdraw = games[gameId].backers[msg.sender].amtA;
-        games[gameId].totalInGame = 
+        games[gameId].totalInGame =
             sub(games[gameId].totalInGame, amount_to_withdraw);
         delete games[gameId].backers[msg.sender];
         msg.sender.transfer(amount_to_withdraw);
         return true;
       }
 
-      amount_to_withdraw = 
+      amount_to_withdraw =
           add(amount_to_withdraw, games[gameId].backers[msg.sender].amtB);
 
       amount_to_withdraw += ((games[gameId].backers[msg.sender].amtB
@@ -393,7 +393,7 @@ contract SpoofOfStakeBeta{
       }
 
       delete games[gameId].backers[msg.sender];
-      games[gameId].totalInGame = 
+      games[gameId].totalInGame =
           sub(games[gameId].totalInGame, amount_to_withdraw);
       msg.sender.transfer(amount_to_withdraw);
       PaidOut(amount_to_withdraw, gameId, msg.sender);
@@ -403,9 +403,9 @@ contract SpoofOfStakeBeta{
         return false;
       }
 
-      amount_to_withdraw = 
+      amount_to_withdraw =
           add(amount_to_withdraw, games[gameId].backers[msg.sender].amtA);
-      amount_to_withdraw = 
+      amount_to_withdraw =
           add(amount_to_withdraw, games[gameId].backers[msg.sender].amtB);
 
       amount_to_withdraw = (amount_to_withdraw
@@ -416,7 +416,7 @@ contract SpoofOfStakeBeta{
       }
 
       delete games[gameId].backers[msg.sender];
-      games[gameId].totalInGame = 
+      games[gameId].totalInGame =
           sub(games[gameId].totalInGame, amount_to_withdraw);
       msg.sender.transfer(amount_to_withdraw);
       PaidOut(amount_to_withdraw, gameId, msg.sender);
