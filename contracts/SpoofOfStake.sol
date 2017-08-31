@@ -90,6 +90,13 @@ contract SpoofOfStakeBeta{
 
   uint public gameDur;
 
+  //The amount of time during which the game time will be extended if a bet is placed
+  //within this amount of the endTime of the game
+  uint public bufferTime;
+
+  //If we need to extend the game, we add this amount
+  uint public timeAdd;
+
   uint public house_cut_percent;
   uint public house_cut_percent_tie;
 
@@ -121,6 +128,8 @@ contract SpoofOfStakeBeta{
       current_house_cut_tie:10,
       current_bounty:1
     });
+    bufferTime = 1 minutes;
+    timeAdd = 5 minutes;
     curGameId = 0;
     house_cut_percent = 5;
     house_cut_percent_tie = 10;
@@ -169,16 +178,16 @@ contract SpoofOfStakeBeta{
   */
 
   //Event displays a user backing a side
-  event LogBack(address indexed sender, string choice, uint value);
+  event LogBack(address sender, string choice, uint value);
 
   //Event displays amounts added to the treasury
-  event HouseCut(uint indexed cut_amount, uint indexed cut_percent, uint indexed treasury_amt);
+  event HouseCut(uint cut_amount, uint cut_percent, uint treasury_amt);
 
   //Event displays the start of a new game
-  event NewGame(uint indexed startTime, uint indexed endTime, uint indexed totalInGame);
+  event NewGame(uint indexed startTime, uint indexed endTime);
 
   //Event displays a payment to a winner
-  event PaidOut(uint indexed amt_paid, uint indexed gameId, address _to);
+  event PaidOut(uint amt_paid, uint indexed gameId, address _to);
 
   /*
   * Functions for privileged address:
@@ -210,6 +219,14 @@ contract SpoofOfStakeBeta{
     msg.sender.transfer(temp);
   }
 
+  function setBufferTime(uint time) onlyPrivileged{
+    bufferTime = time;
+  }
+
+  function setTimeAdd(uint time) onlyPrivileged{
+    timeAdd = time;
+  }
+
   //Allows a player to back a side - A or B by calling this function
   //and passing in an integer indicating the side choice.
   //Accepted integers: 1 or 2, to represent sides A and B respectively
@@ -221,12 +238,22 @@ contract SpoofOfStakeBeta{
     returns(bool success)
     {
     if(choice == 1){ //User backs side A
+      //If the current game will end soon, we want to extend the game to prevent a miner
+      //from submitting the final bet
+      if(games[curGameId].endTime - bufferTime < now){
+        games[curGameId].endTime = add(games[curGameId].endTime, timeAdd);
+      }
       games[curGameId].totalInA = add(games[curGameId].totalInA,  msg.value);
       games[curGameId].backers[msg.sender].amtA =
           add(games[curGameId].backers[msg.sender].amtA,  msg.value);
       LogBack(msg.sender, "A", msg.value);
       return true;
     } else if (choice == 2){ //User backs side B
+      //If the current game will end soon, we want to extend the game to prevent a miner
+      //from submitting the final bet
+      if(games[curGameId].endTime - bufferTime < now){
+        games[curGameId].endTime = add(games[curGameId].endTime, timeAdd);
+      }
       games[curGameId].totalInB = add(games[curGameId].totalInB,  msg.value);
       games[curGameId].backers[msg.sender].amtB =
           add(games[curGameId].backers[msg.sender].amtB,  msg.value);
@@ -261,18 +288,40 @@ contract SpoofOfStakeBeta{
 
     //Decide the winner based on amounts in A and B
     if(games[curGameId].totalInA < games[curGameId].totalInB){
-        games[curGameId].winner = SIDE_A;
+      games[curGameId].winner = SIDE_A;
     } else if (games[curGameId].totalInB < games[curGameId].totalInA){
       games[curGameId].winner = SIDE_B;
     } else {
       games[curGameId].winner = TIE;
     }
 
+    //If either side didn't have any bets placed, we want to give refunds to anyone that bet
+    //So, we create a new game without taking a house cut
+    if(games[curGameId].totalInA == 0 || games[curGameId].totalInB == 0){
+      curGameId = add(curGameId, 1);
+      games[curGameId] = Game({
+        startTime: now,
+        endTime: add(now, gameDur),
+        gameId: curGameId,
+        totalInA: 0,
+        totalInB: 0,
+        totalInGame: 0,
+        winner: IN_PROGRESS,
+        current_house_cut:house_cut_percent,
+        current_house_cut_tie:house_cut_percent_tie,
+        current_bounty:startgame_bounty_percent
+      });
+
+      NewGame(games[curGameId].startTime, games[curGameId].endTime);
+
+      return true;
+    }
+
     uint house_cut = 0;
     uint bounty = 0;
 
     //House cut is different if the game is a tie
-    //Using SafeMath reduces readability in this case
+    //Using SafeMath reduces readability in this case - but the house cut should never overflow
     if(games[curGameId].winner == TIE){
       house_cut += (games[curGameId].totalInGame * games[curGameId].current_house_cut_tie) / 100;
     } else {
@@ -299,9 +348,10 @@ contract SpoofOfStakeBeta{
       current_bounty:startgame_bounty_percent
     });
 
-
     //Attempt to send the person who called this function the bounty
     msg.sender.transfer(bounty);
+
+    NewGame(games[curGameId].startTime, games[curGameId].endTime);
 
     return true;
 
