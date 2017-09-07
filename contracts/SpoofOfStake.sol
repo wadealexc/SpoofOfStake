@@ -1,6 +1,6 @@
-pragma solidity ^0.4.13;
+pragma solidity ^0.4.15;
 
-contract SpoofOfStakeBeta{
+contract SpoofOfStake{
 
 
   /*
@@ -82,7 +82,8 @@ contract SpoofOfStakeBeta{
   //Mapping of all gameIds to their respective games
   mapping(uint => Game) games;
   //privileged address - allows the token contract to interact
-  address public privileged;
+  address public privileged; /*TODO push token addr here*/
+
   //Amount of Ether taken from house edge and not withdrawn from the contract
   uint public treasury;
 
@@ -112,7 +113,7 @@ contract SpoofOfStakeBeta{
 
 
   //Constructor
-  function SpoofOfStakeBeta(){
+  function SpoofOfStake(){
     privileged = msg.sender;
     paused = false;
     gameDur = 2 minutes;
@@ -213,7 +214,7 @@ contract SpoofOfStakeBeta{
   }
 
   //Used by the token contract to withdraw treasury
-  function withdrawTreasury() onlyPrivileged {
+  function withdrawTreasury() onlyPrivileged{
     uint temp = treasury;
     treasury = 0;
     msg.sender.transfer(temp);
