@@ -1,5 +1,5 @@
 # SpoofOfStake
-Ethereum DApp based around the future 'Proof of Stake' feature
+Ethereum DApp loosely based on Ethereum's future PoS mechanic
 
 ### Game Concept
 Proof of Stake - Verification method in which those who report are rewarded for honest reporting and punished for dishonest reporting.
