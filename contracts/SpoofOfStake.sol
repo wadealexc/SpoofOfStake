@@ -116,7 +116,7 @@ contract SpoofOfStake{
   function SpoofOfStake(){
     privileged = msg.sender;
     paused = false;
-    gameDur = 2 minutes;
+    gameDur = 1 days;
     games[0] = Game({
       gameId:0,
       startTime:now,
@@ -125,16 +125,16 @@ contract SpoofOfStake{
       totalInB:0,
       totalInGame:0,
       winner:IN_PROGRESS,
-      current_house_cut:5,
+      current_house_cut:20,
       current_house_cut_tie:10,
-      current_bounty:1
+      current_bounty:100
     });
     bufferTime = 1 minutes;
     timeAdd = 5 minutes;
     curGameId = 0;
-    house_cut_percent = 5;
-    house_cut_percent_tie = 10;
-    startgame_bounty_percent = 1;
+    house_cut_percent = 20; //Default 5%
+    house_cut_percent_tie = 10; //Default 10%
+    startgame_bounty_percent = 100; //Default 1%
   }
 
   /*
@@ -213,6 +213,10 @@ contract SpoofOfStake{
     house_cut_percent_tie = house_cut_tie;
   }
 
+  function setBountyPercent(uint bounty_percent) onlyPrivileged {
+    startgame_bounty_percent = bounty_percent;
+  }
+
   //Used by the token contract to withdraw treasury
   function withdrawTreasury() onlyPrivileged{
     uint temp = treasury;
@@ -238,7 +242,7 @@ contract SpoofOfStake{
     payable
     returns(bool success)
     {
-    if(choice == 1){ //User backs side A
+    if(choice == SIDE_A){ //User backs side A by sending 1 to the function
       //If the current game will end soon, we want to extend the game to prevent a miner
       //from submitting the final bet
       if(games[curGameId].endTime - bufferTime < now){
@@ -249,7 +253,7 @@ contract SpoofOfStake{
           add(games[curGameId].backers[msg.sender].amtA,  msg.value);
       LogBack(msg.sender, "A", msg.value);
       return true;
-    } else if (choice == 2){ //User backs side B
+    } else if (choice == SIDE_B){ //User backs side B by sending 2 to the function
       //If the current game will end soon, we want to extend the game to prevent a miner
       //from submitting the final bet
       if(games[curGameId].endTime - bufferTime < now){
@@ -324,9 +328,9 @@ contract SpoofOfStake{
     //House cut is different if the game is a tie
     //Using SafeMath reduces readability in this case - but the house cut should never overflow
     if(games[curGameId].winner == TIE){
-      house_cut += (games[curGameId].totalInGame * games[curGameId].current_house_cut_tie) / 100;
+      house_cut += div(games[curGameId].totalInGame, games[curGameId].current_house_cut_tie);
     } else {
-      house_cut += (games[curGameId].totalInGame * games[curGameId].current_house_cut) / 100;
+      house_cut += div(games[curGameId].totalInGame, games[curGameId].current_house_cut);
     }
 
     games[curGameId].totalInGame = sub(games[curGameId].totalInGame, house_cut);
@@ -374,11 +378,6 @@ contract SpoofOfStake{
     //if side A won
     uint amount_to_withdraw = 0;
     if(games[gameId].winner == SIDE_A){
-      //If msg.sender did not contribute to side A, or has already withdrawn
-      if(games[gameId].backers[msg.sender].amtA == 0){
-        return false;
-      }
-
       //If no one submitted a bet to the other side, issue a refund
       if(games[gameId].totalInA == 0
         && games[gameId].backers[msg.sender].amtB != 0){
@@ -391,14 +390,18 @@ contract SpoofOfStake{
         return true;
       }
 
+      //If msg.sender did not contribute to side A, or has already withdrawn
+      if(games[gameId].backers[msg.sender].amtA == 0){
+        return false;
+      }
+
       amount_to_withdraw =
           add(amount_to_withdraw, games[gameId].backers[msg.sender].amtA);
 
       amount_to_withdraw += ((games[gameId].backers[msg.sender].amtA
               * games[gameId].totalInB) / games[gameId].totalInA);
       //Takes out the house cut, but does not add to treasury (this is done in the startGame function)
-      amount_to_withdraw  = (amount_to_withdraw
-              * (100 - games[gameId].current_house_cut)) / 100;
+      amount_to_withdraw -= div(amount_to_withdraw, games[gameId].current_house_cut);
 
       //Check that the game has at least amount_to_withdraw in the game:
       if(games[gameId].totalInGame < amount_to_withdraw){
@@ -412,11 +415,6 @@ contract SpoofOfStake{
       PaidOut(amount_to_withdraw, gameId, msg.sender);
 
     } else if (games[gameId].winner == SIDE_B){
-      //If msg.sender did not contribute to side A, or has already withdrawn
-      if(games[gameId].backers[msg.sender].amtB == 0){
-        return false;
-      }
-
       //If no one submitted a bet to the other side, issue a refund
       if(games[gameId].totalInB == 0
         && games[gameId].backers[msg.sender].amtA != 0){
@@ -429,14 +427,18 @@ contract SpoofOfStake{
         return true;
       }
 
+      //If msg.sender did not contribute to side B, or has already withdrawn
+      if(games[gameId].backers[msg.sender].amtB == 0){
+        return false;
+      }
+
       amount_to_withdraw =
           add(amount_to_withdraw, games[gameId].backers[msg.sender].amtB);
 
       amount_to_withdraw += ((games[gameId].backers[msg.sender].amtB
               * games[gameId].totalInA) / games[gameId].totalInB);
 
-      amount_to_withdraw = (amount_to_withdraw
-              * (100 - games[gameId].current_house_cut)) / 100;
+      amount_to_withdraw -= div(amount_to_withdraw, games[gameId].current_house_cut);
 
       //Check that the game has at least amount_to_withdraw in the game:
       if(games[gameId].totalInGame < amount_to_withdraw){
@@ -449,6 +451,7 @@ contract SpoofOfStake{
       msg.sender.transfer(amount_to_withdraw);
       PaidOut(amount_to_withdraw, gameId, msg.sender);
     } else { //game ended in a tie
+      //Disallow withdrawal if the user has not backed a side, or has already withdrawn
       if(games[gameId].backers[msg.sender].amtA == 0
         && games[gameId].backers[msg.sender].amtB == 0){
         return false;
@@ -459,8 +462,8 @@ contract SpoofOfStake{
       amount_to_withdraw =
           add(amount_to_withdraw, games[gameId].backers[msg.sender].amtB);
 
-      amount_to_withdraw = (amount_to_withdraw
-              * (100 - games[gameId].current_house_cut_tie)) / 100;
+      //Take out the house cut but do not add to treasury (this is done in the startGame function)
+      amount_to_withdraw -= div(amount_to_withdraw, games[gameId].current_house_cut_tie);
 
       if(games[gameId].totalInGame < amount_to_withdraw){
         return false;

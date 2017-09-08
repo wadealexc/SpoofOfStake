@@ -98,6 +98,17 @@ contract SOSToken{
     return true;
   }
 
+  //Burns the number of tokens specified and sends that proportion of the totalSupply from the treasury
+  function claim(uint tokens) returns(bool success){
+    require(balances[msg.sender] >= tokens);
+    require(totalSupply >= tokens);
+    uint toTransfer = this.balance * tokens / totalSupply;
+    balances[msg.sender] -= tokens;
+    totalSupply -= tokens;
+    msg.sender.transfer(toTransfer);
+    return true;
+  }
+
   /*
   * Privilaged functions:
   */
