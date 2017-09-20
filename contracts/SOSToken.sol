@@ -1,6 +1,17 @@
 pragma solidity ^0.4.15;
 
-import "./SpoofOfStake.sol";
+import "https://github.com/wadeAlexC/SpoofOfStake/blob/master/contracts/SpoofOfStake.sol";
+
+contract SpoofOfStake{
+  function pause() {}
+  function unpause() {}
+  function setHouseCut(uint house_cut) {}
+  function setHouseCutTie(uint house_cut_tie) {}
+  function setBountyPercent(uint bounty_percent) {}
+  function withdrawTreasury() {}
+  function setBufferTime(uint time) {}
+  function setTimeAdd(uint time) {}
+}
 
 //Implements all ERC20 methods
 contract SOSToken{
@@ -10,6 +21,12 @@ contract SOSToken{
   string public constant symbol = "SOS";
   uint8 public constant decimals = 2;
 
+  //Keeps track of where token holders currently have their votes allocated
+  struct Vote{
+    address to;
+    uint votes;
+  }
+
   //Amounts each user holds
   mapping(address => uint) balances;
 
@@ -18,6 +35,9 @@ contract SOSToken{
 
   //Keeps track of how many votes each address receives for "privileged" status
   mapping(address => uint) votes;
+
+  //Maps a voter to the address they have already voted on, as well as how many votes they have sent
+  mapping(address => Vote) current_votes;
 
   //Address of the privileged account that can interact with the SpoofOfStake contract
   address public privileged;
@@ -36,7 +56,7 @@ contract SOSToken{
   function SOSToken(){
     privileged = msg.sender;
     balances[msg.sender] = totalSupply;
-    SOSContract = SpoofOfStake(SOSAddr);
+    SOSContract = new SpoofOfStake(SOSAddr);
 
   }
 
@@ -86,31 +106,46 @@ contract SOSToken{
   }
 
   //Allocates your portion of the vote to the given address
-  function votePrivilegedAddr(address _privileged) returns(bool success){
-    votes[_privileged] = balances[msg.sender];
-    //If there are enough votes for a particular address, they are now the privileged address
-    //Enough votes is "greater than 50%"
-    if(votes[_privileged] > totalSupply / 2){
-      privileged = _privileged;
-      SOSContract.newPrivileged(privileged);
-      return true;
+  function votePrivilegedAddr(address _choice) returns(bool success){
+    require(balances[msg.sender] > 0);
+    uint to_allocate = balances[msg.sender];
+
+    //Remove any previous votes the sender has created
+    uint to_remove = current_votes[msg.sender].votes;
+    if(to_remove != 0){
+      address remove_from = current_votes[msg.sender].to;
+      votes[remove_from] -= to_remove;
     }
+
+    //Add the new votes to the submitted choice
+    votes[_choice] += to_allocate;
+    current_votes[msg.sender] = Vote({
+        to: _choice,
+        votes: to_allocate
+    })
+
+    //Update privileged address, if necessary
+    if(votes[_privileged] <= votes[_choice]){
+      _privileged = _choice;
+    }
+
     return true;
+
   }
 
   //Burns the number of tokens specified and sends that proportion of the totalSupply from the treasury
   function claim(uint tokens) returns(bool success){
     require(balances[msg.sender] >= tokens);
     require(totalSupply >= tokens);
-    uint toTransfer = this.balance * tokens / totalSupply;
+    uint to_transfer = this.balance * tokens / totalSupply;
     balances[msg.sender] -= tokens;
     totalSupply -= tokens;
-    msg.sender.transfer(toTransfer);
+    msg.sender.transfer(to_transfer);
     return true;
   }
 
   /*
-  * Privilaged functions:
+  * Privileged functions:
   */
   function pauseGame() onlyPrivileged returns(bool success){
     SOSContract.pause();
@@ -144,6 +179,11 @@ contract SOSToken{
 
   function setTimeAdd(uint time) returns(bool success){
     SOSContract.setTimeAdd(time);
+    return true;
+  }
+
+  function setBountyPercent(uint percent) returns(bool success){
+    SOSContact.setBountyPercent(percent);
     return true;
   }
 
