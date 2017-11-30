@@ -1,6 +1,8 @@
 # SpoofOfStake
 Ethereum DApp loosely based on Ethereum's future PoS mechanic
 
+Please note that the code for this application was written as a side project and should not be deployed or used without careful scrutiny. This code has not been audited for security flaws or vulnerabilities - use at your own risk!
+
 ### Game Concept
 Proof of Stake - Verification method in which those who report are rewarded for honest reporting and punished for dishonest reporting.
 
