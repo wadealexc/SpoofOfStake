@@ -36,10 +36,6 @@ Oracles have costs, no oracle, no cost.
 ##### No bankroll
 Because the game is played between players, there is no need for a bankroll that could be lost through play or stolen by mismanagement.
 The profit pool appears similar to a bankroll in that it is a central pool of ether, but it is not by design at risk and is secured by our smart contract
-##### Contract Audit
-The S.o.S contract has been audited by a third party and will continue to be audited on a regular basis.
-In the event of a discovery of a bug in the contract, the game will be stopped until such time that it can be confidently stated to be fixed, at which such time the game will continue regular operation. 
-In the event of a catastrophic or unfixable bug, play on current contract will be stopped permanently and a grace period will be put in place for all token holders to withdraw from exchanges, after which a new contract will be created and a new token issuance will occur, air dropped to all token holders according to their stake. 
 
 ### Technical details
 ##### Backing
